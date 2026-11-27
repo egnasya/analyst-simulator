@@ -1,7 +1,8 @@
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator # Так как мы пишем таски в питоне
+from airflow.operators.python_operator import PythonOperator 
 from datetime import datetime, timedelta
 from airflow.decorators import dag, task
+from airflow.operators.python import get_current_context
 import pandas as pd
 import numpy as np
 import pandahouse as ph
@@ -27,7 +28,7 @@ default_args = {
     'depends_on_past': False,
     'retries': 2,
     'retry_delay': timedelta(minutes=5),
-    'start_date': datetime(2026, 11, 20),
+    'start_date': datetime(2026, 11, 26),
 }
 
 # Интервал запуска DAG
@@ -37,7 +38,10 @@ schedule_interval = '0 04 * * *'
 def dag_user_activity_egorova():
 
     @task()
-    def extract_feed(event_date):
+    def extract_feed():
+        context = get_current_context()
+        event_date = (context['data_interval_end'].date() - timedelta(days=1)).isoformat()
+        
         # получаем необходимые данные по ленте
         q = """
         SELECT
@@ -57,7 +61,10 @@ def dag_user_activity_egorova():
         return feed_tab
     
     @task()
-    def extract_messages(event_date):
+    def extract_messages():
+        context = get_current_context()
+        event_date = (context['data_interval_end'].date() - timedelta(days=1)).isoformat()
+        
         # получаем необходимые данные по месседжеру
         q = """
         SELECT
@@ -188,7 +195,10 @@ def dag_user_activity_egorova():
         return user_activity_metrics
     
     @task()
-    def load(user_activity_metrics, event_date):
+    def load(user_activity_metrics):
+        context = get_current_context()
+        event_date = (context['data_interval_end'].date() - timedelta(days=1)).isoformat()
+        
         table_name = 'user_activity_metrics_egorova'
         
         create_query = f"""
@@ -229,9 +239,9 @@ def dag_user_activity_egorova():
             connection=connection_test,
         )
         
-    feed_tab = extract_feed(event_date='{{ macros.ds_add(ds, -1) }}')
+    feed_tab = extract_feed()
 
-    message_tab = extract_messages(event_date='{{ macros.ds_add(ds, -1) }}')
+    message_tab = extract_messages()
     
     merged_df = merge_user_activity(feed_tab, message_tab)
     
@@ -241,6 +251,6 @@ def dag_user_activity_egorova():
     
     user_activity_metrics = combine_dimension_metrics(user_activity_by_gender, user_activity_by_age, user_activity_by_os)
     
-    load(user_activity_metrics, event_date='{{ macros.ds_add(ds, -1) }}')
+    load(user_activity_metrics)
         
 dag_user_activity_egorova = dag_user_activity_egorova()
